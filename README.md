@@ -1,5 +1,6 @@
 # string-switch-map
-### Compile-time initialized map from string to any trivial constexpr type with `O(n) lookup` (implementation - trie)
+### Compile-time initialized map from string to any trivial constexpr type with linear time lookup (implementation - trie)
+### Time complexity: `O(min(|S|, |S'|))`, where |S| is the length of the string and |S'| is the max length amongst the strings added to the data structure
 
 #### Required language standard: C++20 (tested with g++ 13.2.0 and clang++ 16.0.5)
 
