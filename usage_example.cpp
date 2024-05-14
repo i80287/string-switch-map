@@ -28,6 +28,7 @@ void StringSwitchExample() {
     static_assert(sw("bc") == sw.kDefaultValue);
     static_assert(sw("de") == sw.kDefaultValue);
 
+    std::cout << "Input string to search:\n> ";
     std::string input;
     std::cin >> input;
     std::string_view ans;
@@ -71,7 +72,7 @@ void StringSwitchExample() {
             break;
     }
 
-    std::cout << ans;
+    std::cout << ans << '\n';
 }
 
 void ComileTimeStringMapExample1() {
@@ -85,6 +86,12 @@ void ComileTimeStringMapExample1() {
     static_assert(match("text4") == 3);
     static_assert(match("not in") == match.kDefaultValue);
     static_assert(match.kDefaultValue == 4);
+
+    std::cout << "Max char amongst strings added to the data structure: '" << match.kMaxChar
+              << "'\n"
+              << "Min char amongst strings added to the data structure: '" << match.kMinChar
+              << "'\n"
+              << "Default mapped value in the data structure: " << match.kDefaultValue << '\n';
 
     // Map from string to enum
     enum class SomeEnum {
