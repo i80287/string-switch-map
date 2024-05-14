@@ -1,7 +1,7 @@
 # string-switch-map
 ### Compile-time initialized map from string to any trivial constexpr type with `O(n) lookup` (implementation - trie)
 
-#### Requires language standard: C++20 (tested with clang++ and g++)
+#### Required language standard: C++20 (tested with g++ 13.2.0 and clang++ 16.0.5)
 
 ### Example of usage as mapper from `N` strings to integers `0`...`N-1` in the switch statement:
 ```c++
