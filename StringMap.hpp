@@ -15,6 +15,7 @@
  */
 
 #include <array>
+#include <bit>
 #include <cstdint>
 #include <limits>
 #include <numeric>
@@ -34,8 +35,7 @@ struct [[nodiscard]] CompileTimeStringLiteral {
     consteval CompileTimeStringLiteral(std::string_view str) noexcept : length(str.size()) {
         // Change kMaxStringViewSize if you are using
         //  very long strings in the StringMatch / StringMap.
-        [[maybe_unused]] const auto string_view_size_check =
-            0 / (str.size() <= std::size(value));
+        [[maybe_unused]] const auto string_view_size_check = 0 / (str.size() <= std::size(value));
         std::char_traits<char>::copy(value.data(), str.data(), str.size());
     }
     consteval CompileTimeStringLiteral(const char (&str)[N]) noexcept
@@ -45,10 +45,10 @@ struct [[nodiscard]] CompileTimeStringLiteral {
     [[nodiscard]] consteval std::size_t size() const noexcept {
         return length;
     }
-    consteval char operator[](std::size_t index) const noexcept {
+    [[nodiscard]] consteval char operator[](std::size_t index) const noexcept {
         return value[index];
     }
-    consteval char& operator[](std::size_t index) noexcept {
+    [[nodiscard]] consteval char& operator[](std::size_t index) noexcept {
         return value[index];
     }
 
@@ -65,11 +65,14 @@ struct TrieParamsType final {
     std::size_t trie_alphabet_size = max_char - min_char + 1;
     std::size_t nodes_size{};
 
-    [[nodiscard]] constexpr std::size_t CharToNodeIndex(std::uint8_t chr) const noexcept {
+    [[nodiscard]] constexpr std::size_t CharToNodeIndex(unsigned char chr) const noexcept {
         return static_cast<std::size_t>(chr) - min_char;
     }
+    [[nodiscard]] constexpr std::size_t CharToNodeIndex(signed char chr) const noexcept {
+        return CharToNodeIndex(static_cast<unsigned char>(chr));
+    }
     [[nodiscard]] constexpr std::size_t CharToNodeIndex(char chr) const noexcept {
-        return CharToNodeIndex(static_cast<std::uint8_t>(chr));
+        return CharToNodeIndex(static_cast<unsigned char>(chr));
     }
 };
 
@@ -180,7 +183,7 @@ namespace string_map_impl {
 template <trie_tools::TrieParamsType TrieParams, std::array MappedValues,
           decltype(MappedValues)::value_type DefaultMapValue,
           string_map_detail::CompileTimeStringLiteral... Strings>
-class StringMapImpl final {
+class [[nodiscard]] StringMapImpl final {
     static_assert(0 < TrieParams.min_char && TrieParams.min_char <= TrieParams.max_char &&
                       TrieParams.max_char <= std::numeric_limits<std::uint8_t>::max(),
                   "Empty string was passed in StringMatch / StringMap");
@@ -226,8 +229,8 @@ public:
                 }
             }
         } else {
-            const std::uint8_t* ustr = reinterpret_cast<const std::uint8_t*>(str);
-            for (std::uint8_t c; (c = *ustr) != '\0'; ++ustr) {
+            const auto* ustr = std::bit_cast<const unsigned char*>(str);
+            for (unsigned char c{}; (c = *ustr) != '\0'; ++ustr) {
                 std::size_t index = TrieParams.CharToNodeIndex(c);
                 if (index >= kTrieAlphabetSize) {
                     return kDefaultValue;
