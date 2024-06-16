@@ -50,9 +50,10 @@
     // First, pass N values in the std::array
     // Then, pass default value
     // Then, pass N string literals
-    static constexpr auto map =
-        StringMap<std::array{kText1, kText2, kText3, kText4, kText1, kText3}, kNone, "text1",
-                  "text2", "text3", "text4", "Text1", "Text3">();
+    static constexpr auto map = StringMap<
+        std::array{kText1, kText2, kText3, kText4, kText1, kText3},
+        /* DefaultMapValue = */ kNone,
+        "text1", "text2", "text3", "text4", "Text1", "Text3">();
 
     static_assert(map("text1") == kText1);
     static_assert(map("text2") == kText2);
@@ -79,10 +80,10 @@
         constexpr bool operator==(const MyTrivialType&) const noexcept = default;
     };
 
-    static constexpr auto map =
-        StringMap<std::array{MyTrivialType(1, 2, 3), MyTrivialType(4, 5, 6),
-                             MyTrivialType(7, 8, 9)},
-                  MyTrivialType(0, 0, 0), kMyConstants[0], kMyConstants[1], kMyConstants[2]>();
+    static constexpr auto map = StringMap<
+        std::array{MyTrivialType(1, 2, 3), MyTrivialType(4, 5, 6), MyTrivialType(7, 8, 9)},
+        /* DefaultMapValue = */ MyTrivialType(0, 0, 0),
+        kMyConstants[0], kMyConstants[1], kMyConstants[2]>();
 
     static_assert(map(kMyConstants[0]) == MyTrivialType(1, 2, 3));
     static_assert(map(kMyConstants[1]) == MyTrivialType(4, 5, 6));
