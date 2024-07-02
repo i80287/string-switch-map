@@ -102,7 +102,7 @@ constexpr uint64_t operator-(const timespec& t2, const timespec& t1) noexcept {
 }
 
 int main() {
-    constexpr auto kMeasureLimit = 1000u;
+    constexpr auto kMeasureLimit = 10000u;
 
     static constexpr auto sw = StringMatch<
         kStrings[0], kStrings[1], kStrings[2], kStrings[3], kStrings[4], kStrings[5], kStrings[6],
