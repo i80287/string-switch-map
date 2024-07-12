@@ -26,8 +26,68 @@
 #include <type_traits>
 #include <utility>
 
-#if defined(__cpp_lib_span) && __cpp_lib_span >= 202002L && defined(__has_include) && \
-    __has_include(<span>)
+#if defined(__cplusplus) && __cplusplus >= 202302L
+#define CONFIG_HAS_AT_LEAST_CXX_23 1
+#else
+#define CONFIG_HAS_AT_LEAST_CXX_23 0
+#endif
+
+#if defined(__has_include)
+#define CONFIG_HAS_INCLUDE(include_string) __has_include(include_string)
+#else
+#define CONFIG_HAS_INCLUDE(include_string) 0
+#endif
+
+/* Test for __has_attribute as per __glibc_has_attribute in glibc */
+#if (defined(__has_attribute) && \
+     (!defined(__clang_major__) || 3 < __clang_major__ + (5 <= __clang_minor__)))
+#define CONFIG_HAS_ATTRIBUTE(attr) __has_attribute(attr)
+#else
+#define CONFIG_HAS_ATTRIBUTE(attr) 0
+#endif
+
+#ifdef __has_cpp_attribute
+#define CONFIG_HAS_CPP_ATTRIBUTE(attr) __has_cpp_attribute(attr)
+#else
+#define CONFIG_HAS_CPP_ATTRIBUTE(attr) 0
+#endif
+
+#if defined(__has_builtin)
+#define CONFIG_HAS_BUILTIN(name) __has_builtin(name)
+#else
+#define CONFIG_HAS_BUILTIN(name) 0
+#endif
+
+/* Test for gcc >= maj.min, as per __GNUC_PREREQ in glibc */
+#if defined(__GNUC__) && defined(__GNUC_MINOR__)
+#define CONFIG_GNUC_PREREQ(maj, min) ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+#else
+#define CONFIG_GNUC_PREREQ(maj, min) 0
+#endif
+
+#if CONFIG_GNUC_PREREQ(2, 6) || CONFIG_HAS_ATTRIBUTE(__const__)
+#define ATTRIBUTE_CONST __attribute__((__const__))
+#else
+#define ATTRIBUTE_CONST
+#endif
+
+#if CONFIG_GNUC_PREREQ(2, 96) || CONFIG_HAS_ATTRIBUTE(__pure__)
+#define ATTRIBUTE_PURE __attribute__((__pure__))
+#else
+#define ATTRIBUTE_PURE
+#endif
+
+#if CONFIG_GNUC_PREREQ(3, 2) || CONFIG_HAS_ATTRIBUTE(__always_inline__)
+#define ATTRIBUTE_ALWAYS_INLINE __attribute__((__always_inline__))
+#else
+#define ATTRIBUTE_ALWAYS_INLINE
+#endif
+
+#if CONFIG_HAS_INCLUDE(<version>)
+#include <version>
+#endif
+
+#if defined(__cpp_lib_span) && __cpp_lib_span >= 202002L && CONFIG_HAS_INCLUDE(<span>)
 #define STRING_MAP_USE_SPAN 1
 #include <span>
 #else
@@ -162,21 +222,22 @@ struct CountingVector final {
         }
 #endif
     }
-    constexpr CountingVector(CountingVector&& other) noexcept
-        : data_(std::exchange(other.data_, nullptr)),
-          size_(std::exchange(other.size_, nullptr)),
-          capacity_(std::exchange(other.capacity_, nullptr)) {}
-    constexpr CountingVector& operator=(const CountingVector& other) {
-        return *this = CountingVector(other);
-    }
-    constexpr CountingVector& operator=(CountingVector&& other) noexcept {
-        swap(*this, other);
-        return *this;
-    }
     friend constexpr void swap(CountingVector& lhs, CountingVector& rhs) noexcept {
         std::swap(lhs.data_, rhs.data_);
         std::swap(lhs.size_, rhs.size_);
         std::swap(lhs.capacity_, rhs.capacity_);
+    }
+    constexpr CountingVector(CountingVector&& other) noexcept
+        : data_(std::exchange(other.data_, nullptr)),
+          size_(std::exchange(other.size_, 0)),
+          capacity_(std::exchange(other.capacity_, 0)) {}
+    constexpr CountingVector& operator=(const CountingVector& other) {
+        return *this = CountingVector(other);
+    }
+    constexpr CountingVector& operator=(CountingVector&& other) noexcept {
+        using std::swap;
+        swap(*this, other);
+        return *this;
     }
     constexpr ~CountingVector() {
         allocator_type{}.deallocate(data_, capacity_);
@@ -286,36 +347,39 @@ class [[nodiscard]] StringMapImpl final {
     static_assert(sizeof...(Strings) == std::size(MappedValues) && std::size(MappedValues) > 0,
                   "internal error");
 
-    template <bool InCompileTime>
+    template <bool InCompileTime, bool ForceUnsignedChar = false>
     struct [[nodiscard]] InternalIterator final {
         using iterator_category = std::random_access_iterator_tag;
         using difference_type   = std::ptrdiff_t;
-        using value_type = std::conditional_t<InCompileTime, const char, const unsigned char>;
+        using value_type = std::conditional_t<InCompileTime && !ForceUnsignedChar, const char, const unsigned char>;
         using pointer    = value_type*;
         using reference  = value_type&;
 
-        explicit constexpr InternalIterator(const char* str) noexcept {
+        ATTRIBUTE_ALWAYS_INLINE explicit constexpr InternalIterator(const char* str) noexcept {
             if constexpr (InCompileTime) {
                 pointer_ = str;
             } else {
                 pointer_ = std::bit_cast<pointer>(str);
             }
         }
-        constexpr InternalIterator& operator++() noexcept {
+        ATTRIBUTE_ALWAYS_INLINE constexpr InternalIterator& operator++() noexcept {
             ++pointer_;
             return *this;
         }
-        [[nodiscard]] constexpr value_type operator*() const noexcept {
+        [[nodiscard]] ATTRIBUTE_ALWAYS_INLINE constexpr value_type operator*() const noexcept {
             return *pointer_;
         }
-        [[nodiscard]] constexpr value_type operator[](std::size_t index) const noexcept {
+        [[nodiscard]] ATTRIBUTE_ALWAYS_INLINE constexpr value_type operator[](
+            std::size_t index) const noexcept {
             return pointer_[index];
         }
-        [[nodiscard]] constexpr bool operator==(const InternalIterator& other) const noexcept {
+        [[nodiscard]] ATTRIBUTE_CONST ATTRIBUTE_ALWAYS_INLINE constexpr bool operator==(
+            const InternalIterator& other) const noexcept {
             return pointer_ == other.pointer_;
         }
         struct CStringSentinel {};
-        [[nodiscard]] constexpr bool operator==(const CStringSentinel&) const noexcept {
+        [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr bool operator==(
+            const CStringSentinel&) const noexcept {
             return *pointer_ == '\0';
         }
 
@@ -335,19 +399,29 @@ public:
     }
 
     [[nodiscard]] constexpr MappedType operator()(std::nullptr_t) const noexcept = delete;
-    [[nodiscard]] constexpr MappedType operator()(std::string_view str) const noexcept {
+    [[nodiscard]] constexpr MappedType operator()(std::nullptr_t, std::size_t) const noexcept = delete;
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
+        std::string_view str) const noexcept {
         return operator()(str.data(), str.size());
     }
-    [[nodiscard]] constexpr MappedType operator()(const std::string& str) const noexcept {
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
+        const std::string& str) const noexcept {
         return operator()(str.data(), str.size());
     }
     template <std::size_t N>
-    [[nodiscard]] constexpr MappedType operator()(const char (&str)[N]) const noexcept {
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
+        const char (&str)[N]) const noexcept {
         const bool ends_with_zero_char = N > 0 && str[N - 1] == '\0';
         return operator()(str, ends_with_zero_char ? N - 1 : N);
     }
-    [[nodiscard]] constexpr MappedType operator()(const char* str,
-                                                  std::size_t size) const noexcept {
+    template <std::size_t N>
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
+        const unsigned char (&str)[N]) const noexcept {
+        const bool ends_with_zero_char = N > 0 && str[N - 1] == '\0';
+        return operator()(str, ends_with_zero_char ? N - 1 : N);
+    }
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const char* str,
+                                                                 std::size_t size) const noexcept {
         if (std::is_constant_evaluated()) {
             using IteratorType = InternalIterator</*InCompileTime = */ true>;
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
@@ -356,23 +430,54 @@ public:
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
         }
     }
-    [[nodiscard]] constexpr MappedType operator()(const char* str) const noexcept {
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const unsigned char* str,
+                                                                 std::size_t size) const noexcept {
+        if (std::is_constant_evaluated()) {
+            using IteratorType = InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
+            return operator_call_impl(IteratorType(str), IteratorType(str + size));
+        } else {
+            using IteratorType = InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
+            return operator_call_impl(IteratorType(str), IteratorType(str + size));
+        }
+    }
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const char* str) const noexcept {
+        if (str == nullptr) [[unlikely]] {
+            return kDefaultValue;
+        }
         if (std::is_constant_evaluated()) {
             using IteratorType = InternalIterator</*InCompileTime = */ true>;
             using SentinelType = typename IteratorType::CStringSentinel;
             return operator_call_impl(IteratorType(str), SentinelType{});
         } else {
             using IteratorType = InternalIterator</*InCompileTime = */ false>;
+            using SentinelType = typename IteratorType::CStringSentinel;
+            return operator_call_impl(IteratorType(str), SentinelType{});
+        }
+    }
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const unsigned char* str) const noexcept {
+        if (str == nullptr) [[unlikely]] {
+            return kDefaultValue;
+        }
+        if (std::is_constant_evaluated()) {
+            using IteratorType = InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
+            using SentinelType = typename IteratorType::CStringSentinel;
+            return operator_call_impl(IteratorType(str), SentinelType{});
+        } else {
+            using IteratorType = InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
             using SentinelType = typename IteratorType::CStringSentinel;
             return operator_call_impl(IteratorType(str), SentinelType{});
         }
     }
 #if STRING_MAP_USE_SPAN
     template <std::size_t SpanExtent>
-    [[nodiscard]] constexpr MappedType operator()(
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
         std::span<const char, SpanExtent> str) const noexcept {
-        const bool ends_with_zero_char = !str.empty() && str.last() == '\0';
-        return operator()(str.data(), ends_with_zero_char ? str.size() - 1 : str.size());
+        return operator()(str.data(), str.size());
+    }
+    template <std::size_t SpanExtent>
+    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
+        std::span<const unsigned char, SpanExtent> str) const noexcept {
+        return operator()(str.data(), str.size());
     }
 #endif
 
@@ -418,8 +523,8 @@ private:
     }
 
     template <class IteratorType, class SentinelIteratorType>
-    constexpr MappedType operator_call_impl(IteratorType begin,
-                                            SentinelIteratorType end) const noexcept {
+    ATTRIBUTE_PURE constexpr MappedType operator_call_impl(
+        IteratorType begin, SentinelIteratorType end) const noexcept {
         std::size_t current_node_index = kRootNodeIndex;
         for (; begin != end; ++begin) {
             std::size_t index = TrieParams.CharToNodeIndex(*begin);
@@ -442,12 +547,14 @@ private:
                                                     returned_value > kMappedTypesInfo.max_value)) {
 #if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
                 std::unreachable();
-#elif defined(__has_builtin)
-#if __has_builtin(__builtin_unreachable)
+#elif CONFIG_HAS_BUILTIN(__builtin_unreachable)
                 __builtin_unreachable();
-#elif __has_builtin(__builtin_assume)
+#elif CONFIG_HAS_BUILTIN(__builtin_assume)
                 __builtin_assume(false);
-#endif
+#elif CONFIG_HAS_AT_LEAST_CXX_23 && CONFIG_HAS_CPP_ATTRIBUTE(assume)
+                [[assume(false)]];
+#elif CONFIG_GNUC_PREREQ(13, 0) && CONFIG_HAS_ATTRIBUTE(assume)
+                __attribute__((assume(false)));
 #endif
             }
         }
@@ -484,7 +591,8 @@ private:
                            x == std::numeric_limits<MappedType>::quiet_NaN() ||
                            x == std::numeric_limits<MappedType>::signaling_NaN();
                 };
-#if defined(__cpp_lib_constexpr_algorithms) && __cpp_lib_constexpr_algorithms >= 201806L
+#if defined(__cpp_lib_constexpr_algorithms) && __cpp_lib_constexpr_algorithms >= 201806L && \
+    !defined(_GLIBCXX_DEBUG) && !defined(_LIBCPP_ENABLE_ASSERTIONS)
                 if (std::any_of(MappedValues.begin(), MappedValues.end(), bad_float)) {
                     return info;
                 }
@@ -498,10 +606,19 @@ private:
             }
 
             info.ordered = true;
+#if !defined(_GLIBCXX_DEBUG) && !defined(_LIBCPP_ENABLE_ASSERTIONS)
             const auto [min_iter, max_iter] =
                 std::minmax_element(MappedValues.begin(), MappedValues.end());
             info.min_value = *min_iter;
             info.max_value = *max_iter;
+#else
+            info.min_value = MappedValues.front();
+            info.max_value = MappedValues.front();
+            for (const auto value : MappedValues) {
+                info.min_value = std::min(info.min_value, value);
+                info.max_value = std::max(info.max_value, value);
+            }
+#endif
         }
 
         return info;
@@ -515,7 +632,8 @@ private:
 template <std::size_t N>
 STRING_MAP_CONSTEVAL std::array<std::size_t, N> make_index_array() noexcept {
     std::array<std::size_t, N> index_array{};
-#if defined(__cpp_lib_constexpr_numeric) && __cpp_lib_constexpr_numeric >= 201911L
+#if defined(__cpp_lib_constexpr_numeric) && __cpp_lib_constexpr_numeric >= 201911L && \
+    !defined(_GLIBCXX_DEBUG) && !defined(_LIBCPP_ENABLE_ASSERTIONS)
     std::iota(index_array.begin(), index_array.end(), 0);
 #else
     for (std::size_t i = 0; i < index_array.size(); i++) {
@@ -529,6 +647,15 @@ STRING_MAP_CONSTEVAL std::array<std::size_t, N> make_index_array() noexcept {
 
 #undef STRING_MAP_CONSTEVAL
 #undef STRING_MAP_USE_SPAN
+#undef ATTRIBUTE_ALWAYS_INLINE
+#undef ATTRIBUTE_PURE
+#undef ATTRIBUTE_CONST
+#undef CONFIG_GNUC_PREREQ
+#undef CONFIG_HAS_BUILTIN
+#undef CONFIG_HAS_CPP_ATTRIBUTE
+#undef CONFIG_HAS_ATTRIBUTE
+#undef CONFIG_HAS_INCLUDE
+#undef CONFIG_HAS_AT_LEAST_CXX_23
 
 template <std::array MappedValues, decltype(MappedValues)::value_type DefaultMapValue,
           string_map_detail::CompileTimeStringLiteral... Strings>
