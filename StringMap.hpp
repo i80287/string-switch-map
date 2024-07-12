@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bit>
 #include <concepts>
 #include <cstdint>
 #include <limits>
@@ -88,10 +87,17 @@
 #endif
 
 #if defined(__cpp_lib_span) && __cpp_lib_span >= 202002L && CONFIG_HAS_INCLUDE(<span>)
-#define STRING_MAP_USE_SPAN 1
+#define STRING_MAP_HAS_SPAN 1
 #include <span>
 #else
-#define STRING_MAP_USE_SPAN 0
+#define STRING_MAP_HAS_SPAN 0
+#endif
+
+#if defined(__cpp_lib_bit_cast) && __cpp_lib_bit_cast >= 201806L && CONFIG_HAS_INCLUDE(<bit>)
+#define STRING_MAP_HAS_BIT 1
+#include <bit>
+#else
+#define STRING_MAP_HAS_BIT 0
 #endif
 
 #if defined(__cpp_consteval) && __cpp_consteval >= 201811L
@@ -355,11 +361,16 @@ class [[nodiscard]] StringMapImpl final {
         using pointer    = value_type*;
         using reference  = value_type&;
 
-        ATTRIBUTE_ALWAYS_INLINE explicit constexpr InternalIterator(const char* str) noexcept {
-            if constexpr (InCompileTime) {
+        template <class CharType>
+        ATTRIBUTE_ALWAYS_INLINE explicit constexpr InternalIterator(const CharType* str) noexcept {
+            if constexpr (InCompileTime || std::is_same_v<CharType, value_type>) {
                 pointer_ = str;
             } else {
+#if STRING_MAP_HAS_BIT
                 pointer_ = std::bit_cast<pointer>(str);
+#else
+                pointer_ = reinterpret_cast<pointer>(str);
+#endif
             }
         }
         ATTRIBUTE_ALWAYS_INLINE constexpr InternalIterator& operator++() noexcept {
@@ -398,8 +409,8 @@ public:
         AddPattern<0, Strings...>(kRootNodeIndex + 1);
     }
 
-    [[nodiscard]] constexpr MappedType operator()(std::nullptr_t) const noexcept = delete;
-    [[nodiscard]] constexpr MappedType operator()(std::nullptr_t, std::size_t) const noexcept = delete;
+    constexpr MappedType operator()(std::nullptr_t) const noexcept = delete;
+    constexpr MappedType operator()(std::nullptr_t, std::size_t) const noexcept = delete;
     [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
         std::string_view str) const noexcept {
         return operator()(str.data(), str.size());
@@ -468,7 +479,7 @@ public:
             return operator_call_impl(IteratorType(str), SentinelType{});
         }
     }
-#if STRING_MAP_USE_SPAN
+#if STRING_MAP_HAS_SPAN
     template <std::size_t SpanExtent>
     [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
         std::span<const char, SpanExtent> str) const noexcept {
@@ -646,7 +657,8 @@ STRING_MAP_CONSTEVAL std::array<std::size_t, N> make_index_array() noexcept {
 }  // namespace string_map_detail
 
 #undef STRING_MAP_CONSTEVAL
-#undef STRING_MAP_USE_SPAN
+#undef STRING_MAP_HAS_BIT
+#undef STRING_MAP_HAS_SPAN
 #undef ATTRIBUTE_ALWAYS_INLINE
 #undef ATTRIBUTE_PURE
 #undef ATTRIBUTE_CONST
