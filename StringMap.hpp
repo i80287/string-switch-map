@@ -82,6 +82,25 @@
 #define ATTRIBUTE_ALWAYS_INLINE
 #endif
 
+/**
+ *  mode in { "read_only", "read_only", "read_write", "write_only", "none" },
+ *  mode "none" is valid iff CONFIG_GNUC_PREREQ(11, 0)
+ *
+ *  memory_argument_pos >= 1
+ *  range_size_argument_pos >= 1
+ *
+ *  See https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html for more info
+ */
+#if CONFIG_GNUC_PREREQ(10, 0)
+#define ATTRIBUTE_ACCESS(mode, memory_argument_pos) \
+    __attribute__((access(mode, memory_argument_pos)))
+#define ATTRIBUTE_SIZED_ACCESS(mode, memory_argument_pos, range_size_argument_pos) \
+    __attribute__((access(mode, memory_argument_pos, range_size_argument_pos)))
+#else
+#define ATTRIBUTE_ACCESS(mode, memory_argument_pos)
+#define ATTRIBUTE_SIZED_ACCESS(mode, memory_argument_pos, range_size_argument_pos)
+#endif
+
 #if CONFIG_HAS_INCLUDE(<version>)
 #include <version>
 #endif
@@ -115,9 +134,10 @@ struct [[nodiscard]] CompileTimeStringLiteral {
     static_assert(N > 0);
     STRING_MAP_CONSTEVAL CompileTimeStringLiteral(std::string_view str) noexcept
         : length(str.size()) {
-        // HINT: change kMaxStringViewSize if you are using
-        //  very long strings in the StringMatch / StringMap.
-        [[maybe_unused]] const auto string_view_size_check = 0 / (str.size() <= std::size(value));
+        const bool fits_in_buffer = str.size() < std::size(value);
+        // HINT: Change kMaxStringViewSize if you are using very long strings
+        //  in the StringMatch / StringMap.
+        [[maybe_unused]] const auto string_view_size_check = 0 / fits_in_buffer;
         std::char_traits<char>::copy(value.data(), str.data(), str.size());
     }
     STRING_MAP_CONSTEVAL CompileTimeStringLiteral(const char (&str)[N]) noexcept
@@ -363,7 +383,8 @@ class [[nodiscard]] StringMapImpl final {
     struct [[nodiscard]] InternalIterator final {
         using iterator_category = std::random_access_iterator_tag;
         using difference_type   = std::ptrdiff_t;
-        using value_type = std::conditional_t<InCompileTime && !ForceUnsignedChar, const char, const unsigned char>;
+        using value_type = std::conditional_t<InCompileTime && !ForceUnsignedChar, const char,
+                                              const unsigned char>;
         using pointer    = value_type*;
         using reference  = value_type&;
 
@@ -415,7 +436,7 @@ public:
         AddPattern<0, Strings...>(kRootNodeIndex + 1);
     }
 
-    constexpr MappedType operator()(std::nullptr_t) const noexcept = delete;
+    constexpr MappedType operator()(std::nullptr_t) const noexcept              = delete;
     constexpr MappedType operator()(std::nullptr_t, std::size_t) const noexcept = delete;
     [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(
         std::string_view str) const noexcept {
@@ -437,8 +458,10 @@ public:
         const bool ends_with_zero_char = N > 0 && str[N - 1] == '\0';
         return operator()(str, ends_with_zero_char ? N - 1 : N);
     }
-    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const char* str,
-                                                                 std::size_t size) const noexcept {
+    [[nodiscard]]
+    ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE ATTRIBUTE_SIZED_ACCESS(
+        read_only, 2, 3) constexpr MappedType operator()(const char* str,
+                                                         std::size_t size) const noexcept {
         if (std::is_constant_evaluated()) {
             using IteratorType = InternalIterator</*InCompileTime = */ true>;
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
@@ -447,17 +470,23 @@ public:
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
         }
     }
-    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const unsigned char* str,
-                                                                 std::size_t size) const noexcept {
+    [[nodiscard]]
+    ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE ATTRIBUTE_SIZED_ACCESS(
+        read_only, 2, 3) constexpr MappedType operator()(const unsigned char* str,
+                                                         std::size_t size) const noexcept {
         if (std::is_constant_evaluated()) {
-            using IteratorType = InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
+            using IteratorType =
+                InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
         } else {
-            using IteratorType = InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
+            using IteratorType =
+                InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
             return operator_call_impl(IteratorType(str), IteratorType(str + size));
         }
     }
-    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const char* str) const noexcept {
+    [[nodiscard]]
+    ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE
+    ATTRIBUTE_ACCESS(read_only, 2) constexpr MappedType operator()(const char* str) const noexcept {
         if (str == nullptr) [[unlikely]] {
             return kDefaultValue;
         }
@@ -471,16 +500,20 @@ public:
             return operator_call_impl(IteratorType(str), SentinelType{});
         }
     }
-    [[nodiscard]] ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE constexpr MappedType operator()(const unsigned char* str) const noexcept {
+    [[nodiscard]]
+    ATTRIBUTE_PURE ATTRIBUTE_ALWAYS_INLINE ATTRIBUTE_ACCESS(
+        read_only, 2) constexpr MappedType operator()(const unsigned char* str) const noexcept {
         if (str == nullptr) [[unlikely]] {
             return kDefaultValue;
         }
         if (std::is_constant_evaluated()) {
-            using IteratorType = InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
+            using IteratorType =
+                InternalIterator</*InCompileTime = */ true, /*ForceUnsignedChar = */ true>;
             using SentinelType = typename IteratorType::CStringSentinel;
             return operator_call_impl(IteratorType(str), SentinelType{});
         } else {
-            using IteratorType = InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
+            using IteratorType =
+                InternalIterator</*InCompileTime = */ false, /*ForceUnsignedChar = */ true>;
             using SentinelType = typename IteratorType::CStringSentinel;
             return operator_call_impl(IteratorType(str), SentinelType{});
         }
@@ -527,11 +560,10 @@ private:
             current_node_index = next_node_index;
         }
 
-        // Division by zero will occur in compile time if
-        //  the same patterns are added to the trie.
-        // HINT: remove duplicates from the trie.
-        [[maybe_unused]] const auto duplicate_strings_check =
-            0 / (nodes_[current_node_index].node_value == kDefaultValue);
+        const bool already_added_string = nodes_[current_node_index].node_value != kDefaultValue;
+        // HINT: Remove duplicate strings from the StringMatch / StringMap
+        [[maybe_unused]] const auto duplicate_strings_check = 0 / !already_added_string;
+
         static_assert(CurrentPackIndex < MappedValues.size(), "impl error");
         nodes_[current_node_index].node_value = MappedValues[CurrentPackIndex];
         if constexpr (sizeof...(AddStrings) > 0) {
@@ -542,7 +574,6 @@ private:
     template <class IteratorType, class SentinelIteratorType>
     ATTRIBUTE_PURE constexpr MappedType operator_call_impl(
         IteratorType begin, SentinelIteratorType end) const noexcept {
-
 #if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
 #define UNREACHABLE() std::unreachable()
 #elif CONFIG_HAS_BUILTIN(__builtin_unreachable)
@@ -674,6 +705,8 @@ STRING_MAP_CONSTEVAL std::array<std::size_t, N> make_index_array() noexcept {
 #undef STRING_MAP_CONSTEVAL
 #undef STRING_MAP_HAS_BIT
 #undef STRING_MAP_HAS_SPAN
+#undef ATTRIBUTE_SIZED_ACCESS
+#undef ATTRIBUTE_ACCESS
 #undef ATTRIBUTE_ALWAYS_INLINE
 #undef ATTRIBUTE_PURE
 #undef ATTRIBUTE_CONST
