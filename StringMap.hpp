@@ -142,10 +142,11 @@ namespace trie_tools {
 
 struct TrieParamsType final {
     static constexpr std::uint32_t kRootNodeIndex = 0;
-    std::uint32_t min_char;
-    std::uint32_t max_char;
+    std::uint32_t min_char{};
+    std::uint32_t max_char{};
     std::size_t trie_alphabet_size = max_char - min_char + 1;
     std::size_t nodes_size{};
+    std::size_t max_height{};
 
     [[nodiscard]] constexpr std::size_t CharToNodeIndex(unsigned char chr) const noexcept {
         return static_cast<std::size_t>(chr) - min_char;
@@ -294,8 +295,8 @@ struct CountingVector final {
 template <trie_tools::TrieParamsType TrieParams,
           string_map_detail::CompileTimeStringLiteral FirstString,
           string_map_detail::CompileTimeStringLiteral... Strings>
-STRING_MAP_CONSTEVAL std::size_t CountNodesImpl(
-    CountingVector<TrieParams.trie_alphabet_size>& nodes) {
+STRING_MAP_CONSTEVAL std::pair<std::size_t, std::size_t> CountNodesSizeAndMaxHeightImpl(
+    CountingVector<TrieParams.trie_alphabet_size>& nodes, std::size_t max_seen_height) {
     std::size_t current_node_index = 0;
     constexpr std::size_t len      = FirstString.size();
     for (std::size_t i = 0; i < len; i++) {
@@ -310,19 +311,22 @@ STRING_MAP_CONSTEVAL std::size_t CountNodesImpl(
         current_node_index = next_node_index;
     }
 
+    max_seen_height = std::max(max_seen_height, len);
+
     if constexpr (sizeof...(Strings) > 0) {
-        return CountNodesImpl<TrieParams, Strings...>(nodes);
+        return CountNodesSizeAndMaxHeightImpl<TrieParams, Strings...>(nodes, max_seen_height);
     } else {
-        return nodes.size();
+        return {nodes.size(), max_seen_height};
     }
 }
 
 template <trie_tools::TrieParamsType TrieParams,
           string_map_detail::CompileTimeStringLiteral... Strings>
-STRING_MAP_CONSTEVAL std::size_t CountNodes() {
+STRING_MAP_CONSTEVAL std::pair<std::size_t, std::size_t> CountNodesSizeAndMaxHeight() {
     constexpr auto kAlphabetSize = TrieParams.trie_alphabet_size;
     CountingVector<kAlphabetSize> nodes(std::size_t(1));
-    return CountNodesImpl<TrieParams, Strings...>(nodes);
+    std::size_t max_seen_height = 0;
+    return CountNodesSizeAndMaxHeightImpl<TrieParams, Strings...>(nodes, max_seen_height);
 }
 
 template <string_map_detail::CompileTimeStringLiteral... Strings>
@@ -332,10 +336,12 @@ STRING_MAP_CONSTEVAL trie_tools::TrieParamsType TrieParams() {
         .min_char = kMinMaxChars.min_char,
         .max_char = kMinMaxChars.max_char,
     };
+    const auto [nodes_size, max_height] = CountNodesSizeAndMaxHeight<kTrieParams, Strings...>();
     return {
         .min_char   = kTrieParams.min_char,
         .max_char   = kTrieParams.max_char,
-        .nodes_size = CountNodes<kTrieParams, Strings...>(),
+        .nodes_size = nodes_size,
+        .max_height = max_height,
     };
 }
 
@@ -536,8 +542,21 @@ private:
     template <class IteratorType, class SentinelIteratorType>
     ATTRIBUTE_PURE constexpr MappedType operator_call_impl(
         IteratorType begin, SentinelIteratorType end) const noexcept {
+
+#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
+#define UNREACHABLE() std::unreachable()
+#elif CONFIG_HAS_BUILTIN(__builtin_unreachable)
+#define UNREACHABLE() __builtin_unreachable()
+#elif CONFIG_HAS_BUILTIN(__builtin_assume)
+#define UNREACHABLE() __builtin_assume(false)
+#elif CONFIG_HAS_AT_LEAST_CXX_23 && CONFIG_HAS_CPP_ATTRIBUTE(assume)
+#define UNREACHABLE() [[assume(false)]]
+#elif CONFIG_GNUC_PREREQ(13, 0) && CONFIG_HAS_ATTRIBUTE(assume)
+#define UNREACHABLE() __attribute__((assume(false)))
+#endif
+
         std::size_t current_node_index = kRootNodeIndex;
-        for (; begin != end; ++begin) {
+        for (std::size_t height = 0; begin != end; ++begin, ++height) {
             std::size_t index = TrieParams.CharToNodeIndex(*begin);
             if (index >= kTrieAlphabetSize) {
                 return kDefaultValue;
@@ -549,6 +568,10 @@ private:
             } else {
                 return kDefaultValue;
             }
+
+            if (height > TrieParams.max_height) {
+                UNREACHABLE();
+            }
         }
 
         const auto returned_value = nodes_[current_node_index].node_value;
@@ -556,19 +579,11 @@ private:
         if constexpr (kMappedTypesInfo.ordered) {
             if (returned_value != kDefaultValue && (returned_value < kMappedTypesInfo.min_value ||
                                                     returned_value > kMappedTypesInfo.max_value)) {
-#if defined(__cpp_lib_unreachable) && __cpp_lib_unreachable >= 202202L
-                std::unreachable();
-#elif CONFIG_HAS_BUILTIN(__builtin_unreachable)
-                __builtin_unreachable();
-#elif CONFIG_HAS_BUILTIN(__builtin_assume)
-                __builtin_assume(false);
-#elif CONFIG_HAS_AT_LEAST_CXX_23 && CONFIG_HAS_CPP_ATTRIBUTE(assume)
-                [[assume(false)]];
-#elif CONFIG_GNUC_PREREQ(13, 0) && CONFIG_HAS_ATTRIBUTE(assume)
-                __attribute__((assume(false)));
-#endif
+                UNREACHABLE();
             }
         }
+
+#undef UNREACHABLE
 
         return returned_value;
     }
