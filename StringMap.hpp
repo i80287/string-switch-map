@@ -193,7 +193,7 @@ struct TrieParamsType final {
     std::uint32_t max_char{};
     std::size_t trie_alphabet_size = max_char - min_char + 1;
     std::size_t nodes_size{};
-    std::size_t max_height{};
+    std::size_t max_tree_height{};
 
     [[nodiscard]] constexpr std::size_t CharToNodeIndex(unsigned char chr) const noexcept {
         return static_cast<std::size_t>(chr) - min_char;
@@ -378,13 +378,13 @@ STRING_MAP_CONSTEVAL TrieParamsType TrieParams() {
         .min_char = kMinMaxChars.min_char,
         .max_char = kMinMaxChars.max_char,
     };
-    const auto [nodes_size, max_height] =
+    const auto [nodes_size, max_tree_height] =
         CountNodesSizeAndMaxHeight<kTrieParamsProto, Strings...>();
     return {
         .min_char   = kTrieParamsProto.min_char,
         .max_char   = kTrieParamsProto.max_char,
         .nodes_size = nodes_size,
-        .max_height = max_height,
+        .max_tree_height = max_tree_height,
     };
 }
 
@@ -621,7 +621,7 @@ private:
                 return kDefaultValue;
             }
 
-            if (height > TrieParams.max_height) {
+            if (height > TrieParams.max_tree_height) {
                 UNREACHABLE();
             }
         }
@@ -837,7 +837,7 @@ template <std::array MappedValues, typename decltype(MappedValues)::value_type D
           string_map_detail::CompileTimeStringLiteral... Strings>
     requires(sizeof...(Strings) == std::size(MappedValues) && std::size(MappedValues) > 0)
 using StringMap =
-    std::conditional_t<(sizeof...(Strings) <= 4 && string_map_detail::trie_tools::kTrieParams<Strings...>.max_height <= 15),
+    std::conditional_t<(sizeof...(Strings) <= 4 && string_map_detail::trie_tools::kTrieParams<Strings...>.max_tree_height <= 15),
                        typename string_map_detail::string_map_impl::StringMapImplFewStrings<
                            string_map_detail::trie_tools::kTrieParams<Strings...>, MappedValues,
                            DefaultMapValue, Strings...>,
