@@ -1,0 +1,25 @@
+name: Ubuntu
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+    contents: read
+
+jobs:
+
+  ubuntu-cmake-gcc:
+    name: ubuntu
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install g++ build-essential clang llvm cmake make
+        sudo apt upgrade
+    - name: Run tests
+      run: |
+        cd ./tests
+        chmod +x ./run_tests.sh
+        ./run_tests.sh

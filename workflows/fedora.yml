@@ -1,0 +1,28 @@
+name: Fedora
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+    contents: read
+
+jobs:
+
+  fedora-cmake-gcc:
+    name: fedora
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - run: cat /etc/os-release
+    - name: Install dependencies
+      run: |
+        sudo dnf -y update
+        sudo dnf -y install gcc-c++ clang cmake make
+        sudo dnf upgrade
+    - name: Run tests
+      run: |
+        cd ./tests
+        chmod +x ./run_tests.sh
+        ./run_tests.sh
