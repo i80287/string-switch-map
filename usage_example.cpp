@@ -29,7 +29,7 @@ void StringSwitchExample() {
     static_assert(sw("de") == sw.kDefaultValue);
 
     constexpr const unsigned char kUString[] = "abc";
-    static_assert(sw(kUString) == 0);
+    static_assert(sw(kUString, std::size(kUString) - 1) == sw("abc"));
 
     std::cout << "Input string to search:\n> ";
     std::string input;
